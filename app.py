@@ -87,7 +87,7 @@ def get_notion_data():
     return results
 
 def update_google_sheet(data):
-    """Notion verilerini Google Sheets'e yazar, sadece değişen kayıtları günceller"""
+    """Google Sheets'e veri yazar, sadece değişen kayıtları günceller"""
     try:
         client = get_sheets_client()
         sheet = client.open(GOOGLE_SHEET_NAME).sheet1
@@ -121,6 +121,9 @@ def update_google_sheet(data):
             sheet.append_row(headers)
         
         # Yeni veya değiştirilmiş kayıtları güncelle
+        updated_count = 0
+        new_count = 0
+        
         for row in data:
             notion_id = row.get('notion_id', '')
             
@@ -136,14 +139,14 @@ def update_google_sheet(data):
                         cell_list.append(gspread.Cell(idx, col_idx, str(row.get(header, ''))))
                     
                     sheet.update_cells(cell_list)
-                    print(f"Kayıt güncellendi: {notion_id}")
+                    updated_count += 1
             else:
                 # Yeni kayıt - sona ekle
                 values = [row.get(header, '') for header in headers]
                 sheet.append_row(values)
-                print(f"Yeni kayıt eklendi: {notion_id}")
+                new_count += 1
         
-        return True
+        return {"updated": updated_count, "new": new_count, "total": len(data)}
     except Exception as e:
         print(f"Google Sheets güncellenirken hata: {str(e)}")
         raise e
@@ -186,10 +189,10 @@ def manual_sync():
     """Manuel senkronizasyon için endpoint"""
     try:
         notion_data = get_notion_data()
-        update_google_sheet(notion_data)
+        result = update_google_sheet(notion_data)
         return jsonify({
             "status": "success",
-            "message": f"{len(notion_data)} kayıt Google Sheets'e yazıldı"
+            "message": f"{result['total']} kayıt işlendi. {result['new']} yeni, {result['updated']} güncellendi."
         })
     except Exception as e:
         return jsonify({"status": "error", "message": str(e)}), 500
