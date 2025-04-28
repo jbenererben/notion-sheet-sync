@@ -189,14 +189,31 @@ def manual_sync():
     """Manuel senkronizasyon için endpoint"""
     try:
         notion_data = get_notion_data()
-        result = update_google_sheet(notion_data)
-        return jsonify({
-            "status": "success",
-            "message": f"{result['total']} kayıt işlendi. {result['new']} yeni, {result['updated']} güncellendi."
-        })
+        print(f"Notion'dan {len(notion_data)} kayıt alındı.")
+        
+        try:
+            # Google Sheets istemcisini al
+            client = get_sheets_client()
+            sheet_name = os.environ.get('GOOGLE_SHEET_NAME', '')
+            print(f"Google Sheets'e bağlanılıyor: {sheet_name}")
+            
+            # Çalışma sayfasını aç
+            sheet = client.open(sheet_name).sheet1
+            print("Google Sheets bağlantısı başarılı.")
+            
+            # Verileri güncelle
+            result = update_google_sheet(notion_data)
+            return jsonify({
+                "status": "success",
+                "message": f"{len(notion_data)} kayıt işlendi."
+            })
+        except Exception as e:
+            error_detail = str(e)
+            print(f"Google Sheets hatası: {error_detail}")
+            return jsonify({"status": "error", "message": f"Google Sheets hatası: {error_detail}"}), 500
     except Exception as e:
         return jsonify({"status": "error", "message": str(e)}), 500
-
+        
 @app.route('/test-notion', methods=['GET'])
 def test_notion():
     """Notion bağlantısını test et"""
