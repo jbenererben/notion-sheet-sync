@@ -12,7 +12,7 @@ app = Flask(__name__)
 # Çevre değişkenlerini al
 NOTION_TOKEN = os.environ.get('NOTION_TOKEN', '')
 NOTION_DATABASE_ID = os.environ.get('NOTION_DATABASE_ID', '')
-GOOGLE_CREDENTIALS_JSON = os.environ.get('GOOGLE_CREDENTIALS', '{}')
+GOOGLE_CREDENTIALS = os.environ.get('GOOGLE_CREDENTIALS', '{}')  # GOOGLE_CREDENTIALS_JSON yerine GOOGLE_CREDENTIALS 
 GOOGLE_SHEET_NAME = os.environ.get('GOOGLE_SHEET_NAME', '')
 
 # Notion API headers
