@@ -87,40 +87,6 @@ def get_notion_data():
     
     return results
 
-"""def update_google_sheet(data):"""
-    """Google Sheets'e veri yazar"""
-    """try:
-        # Google Sheets bağlantısını kur
-        client = get_sheets_client()
-        print(f"Sheets istemcisi oluşturuldu. Doküman adı: {GOOGLE_SHEET_NAME}")
-        
-        # Çalışma sayfasını aç
-        sheet = client.open(GOOGLE_SHEET_NAME).sheet1
-        print("Çalışma sayfası açıldı.")
-        
-        # Sayfayı temizle
-        sheet.clear()
-        print("Sayfa temizlendi.")
-        
-        # Başlıkları ayarla
-        if data:
-            headers = list(data[0].keys())
-            sheet.append_row(headers)
-            print(f"Başlıklar eklendi: {headers}")
-            
-            # Verileri ekle
-            row_count = 0
-            for row in data:
-                values = [row.get(header, '') for header in headers]
-                sheet.append_row(values)
-                row_count += 1
-            print(f"{row_count} satır eklendi.")
-        
-        return {"added": len(data)}
-    except Exception as e:
-        print(f"Google Sheets güncelleme hatası: {str(e)}")
-        raise Exception(f"Google Sheets güncelleme hatası: {str(e)}")"""
-
 def update_google_sheet(data):
     """Google Sheets'e veri yazar"""
     try:
