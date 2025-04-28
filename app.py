@@ -152,14 +152,14 @@ def update_google_sheet(data):
                     sheet.append_row(values)
                     new_count += 1
             
-            # Sıralama - Tarih'e göre sırala
+             # Sıralama - Etkinlik Adı'na göre sırala
             if existing_data or new_count > 0:
                 # Başlık satırını hariç tut ve verileri sırala
                 all_data = sheet.get_all_records()
                 
-                # Tarih sütununa göre sırala (varsa)
-                if 'Tarih' in headers:
-                    sorted_data = sorted(all_data, key=lambda x: x.get('Tarih', ''), reverse=False)
+                # Etkinlik Adı sütununa göre sırala (varsa)
+                if 'Etkinlik Adı' in headers:
+                    sorted_data = sorted(all_data, key=lambda x: x.get('Etkinlik Adı', '').lower(), reverse=False)
                     
                     # Sıralanmış verileri geri yaz
                     sheet.update('A2', [
