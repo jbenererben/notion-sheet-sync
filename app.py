@@ -25,15 +25,16 @@ NOTION_HEADERS = {
 def get_sheets_client():
     """Google Sheets API istemcisi oluşturur"""
     try:
-        info = json.loads(GOOGLE_CREDENTIALS_JSON)
+        info = json.loads(GOOGLE_CREDENTIALS)
         creds = service_account.Credentials.from_service_account_info(
             info,
             scopes=['https://spreadsheets.google.com/feeds', 'https://www.googleapis.com/auth/drive']
         )
-        return gspread.authorize(creds)
+        client = gspread.authorize(creds)
+        return client
     except Exception as e:
         print(f"Sheets istemcisi oluşturulurken hata: {str(e)}")
-        raise e
+        raise Exception(f"Sheets istemcisi hatası: {str(e)}")
 
 def get_notion_data():
     """Notion veritabanından veri çeker"""
@@ -87,69 +88,38 @@ def get_notion_data():
     return results
 
 def update_google_sheet(data):
-    """Google Sheets'e veri yazar, sadece değişen kayıtları günceller"""
+    """Google Sheets'e veri yazar"""
     try:
+        # Google Sheets bağlantısını kur
         client = get_sheets_client()
+        print(f"Sheets istemcisi oluşturuldu. Doküman adı: {GOOGLE_SHEET_NAME}")
+        
+        # Çalışma sayfasını aç
         sheet = client.open(GOOGLE_SHEET_NAME).sheet1
+        print("Çalışma sayfası açıldı.")
         
-        # Mevcut verileri al
-        existing_data = []
-        try:
-            existing_data = sheet.get_all_records()
-        except:
-            # Sayfa boşsa veya başlıklar yoksa hata alınabilir
-            pass
+        # Sayfayı temizle
+        sheet.clear()
+        print("Sayfa temizlendi.")
         
-        # Mevcut kayıtları notion_id'ye göre mapla
-        existing_map = {row.get('notion_id', ''): (idx + 2, row) for idx, row in enumerate(existing_data)}
-        
-        # Başlıkları topla
-        all_keys = set()
-        for row in data:
-            all_keys.update(row.keys())
-        
-        # ID ve zaman alanlarını sona taşı
-        headers = [key for key in all_keys if key not in ['notion_id', 'last_edited_time']]
-        if 'notion_id' in all_keys:
-            headers.append('notion_id')
-        if 'last_edited_time' in all_keys:
-            headers.append('last_edited_time')
-        
-        # Sayfa boşsa veya yeniden düzenlemek istiyorsak başlıkları ekle
-        if not existing_data:
-            sheet.clear()
+        # Başlıkları ayarla
+        if data:
+            headers = list(data[0].keys())
             sheet.append_row(headers)
-        
-        # Yeni veya değiştirilmiş kayıtları güncelle
-        updated_count = 0
-        new_count = 0
-        
-        for row in data:
-            notion_id = row.get('notion_id', '')
+            print(f"Başlıklar eklendi: {headers}")
             
-            if notion_id in existing_map:
-                # Mevcut kayıt - son düzenleme zamanlarını karşılaştır
-                idx, existing_row = existing_map[notion_id]
-                
-                # Notion'daki değişiklik Sheets'teki son güncellemeden sonraysa güncelle
-                if row.get('last_edited_time', '') > existing_row.get('last_edited_time', ''):
-                    # Satırı güncelle
-                    cell_list = []
-                    for col_idx, header in enumerate(headers, start=1):
-                        cell_list.append(gspread.Cell(idx, col_idx, str(row.get(header, ''))))
-                    
-                    sheet.update_cells(cell_list)
-                    updated_count += 1
-            else:
-                # Yeni kayıt - sona ekle
+            # Verileri ekle
+            row_count = 0
+            for row in data:
                 values = [row.get(header, '') for header in headers]
                 sheet.append_row(values)
-                new_count += 1
+                row_count += 1
+            print(f"{row_count} satır eklendi.")
         
-        return {"updated": updated_count, "new": new_count, "total": len(data)}
+        return {"added": len(data)}
     except Exception as e:
-        print(f"Google Sheets güncellenirken hata: {str(e)}")
-        raise e
+        print(f"Google Sheets güncelleme hatası: {str(e)}")
+        raise Exception(f"Google Sheets güncelleme hatası: {str(e)}")
 
 @app.route('/')
 def home():
@@ -188,31 +158,24 @@ def webhook():
 def manual_sync():
     """Manuel senkronizasyon için endpoint"""
     try:
+        print("Sync endpoint çağrıldı.")
+        
+        # Notion'dan veri al
         notion_data = get_notion_data()
         print(f"Notion'dan {len(notion_data)} kayıt alındı.")
         
-        try:
-            # Google Sheets istemcisini al
-            client = get_sheets_client()
-            sheet_name = os.environ.get('GOOGLE_SHEET_NAME', '')
-            print(f"Google Sheets'e bağlanılıyor: {sheet_name}")
-            
-            # Çalışma sayfasını aç
-            sheet = client.open(sheet_name).sheet1
-            print("Google Sheets bağlantısı başarılı.")
-            
-            # Verileri güncelle
-            result = update_google_sheet(notion_data)
-            return jsonify({
-                "status": "success",
-                "message": f"{len(notion_data)} kayıt işlendi."
-            })
-        except Exception as e:
-            error_detail = str(e)
-            print(f"Google Sheets hatası: {error_detail}")
-            return jsonify({"status": "error", "message": f"Google Sheets hatası: {error_detail}"}), 500
+        # Google Sheets'e gönder
+        result = update_google_sheet(notion_data)
+        print("Güncelleme tamamlandı:", result)
+        
+        return jsonify({
+            "status": "success",
+            "message": f"{len(notion_data)} kayıt başarıyla Google Sheets'e aktarıldı."
+        })
     except Exception as e:
-        return jsonify({"status": "error", "message": str(e)}), 500
+        error_detail = str(e)
+        print(f"Sync hatası: {error_detail}")
+        return jsonify({"status": "error", "message": error_detail}), 500
         
 @app.route('/test-notion', methods=['GET'])
 def test_notion():
