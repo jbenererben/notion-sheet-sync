@@ -136,11 +136,14 @@ def home():
 def webhook():
     # Gelen webhook verilerini al
     data = request.json
+    print("Webhook verisi:", data)
     
     # Webhook doğrulama
     if 'challenge' in data:
+        challenge_token = data['challenge']
+        print(f"Challenge token: {challenge_token}")
         # Bu bir doğrulama isteği
-        return jsonify({"challenge": data['challenge']})
+        return jsonify({"challenge": challenge_token})
     
     # Webhook verilerini loglama
     print("Webhook alındı:", data)
