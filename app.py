@@ -88,42 +88,90 @@ def get_notion_data():
     return results
 
 def update_google_sheet(data):
-    """Google Sheets'e veri yazar"""
+    """Google Sheets'e veri yazar, sadece değişen kayıtları günceller"""
     try:
-        # Google Sheets bağlantısını kur
         client = get_sheets_client()
-        print(f"Sheets istemcisi oluşturuldu. Doküman adı: {GOOGLE_SHEET_NAME}")
+        
+        # Çalışma sayfasını aç
+        sheet = client.open(GOOGLE_SHEET_NAME).sheet1
         
         try:
-            # Çalışma sayfasını aç
-            sheet = client.open(GOOGLE_SHEET_NAME).sheet1
-            print("Çalışma sayfası açıldı.")
+            # Mevcut verileri al
+            existing_data = sheet.get_all_records()
             
-            # Sayfayı temizle
-            sheet.clear()
-            print("Sayfa temizlendi.")
+            # Mevcut kayıtları notion_id'ye göre mapla
+            existing_map = {row.get('notion_id', ''): (idx + 2, row) for idx, row in enumerate(existing_data)}
             
-            # Başlıkları ayarla
-            if data:
-                headers = list(data[0].keys())
+            # Başlıklar zaten varsa kullan, yoksa oluştur
+            if existing_data:
+                headers = sheet.row_values(1)
+            else:
+                # Takvim için gerekli alanları seç
+                headers = ['Etkinlik Adı', 'Etkinlik Türü', 'Müşteri', 'Tarih', 'Kurulum Tarihi', 
+                           'Yer', 'Kişi Sayısı', 'NX Kodu', 'Durum', 'notion_id', 'last_edited_time']
                 sheet.append_row(headers)
-                print(f"Başlıklar eklendi: {headers}")
-                
-                # Verileri ekle
-                row_count = 0
-                for row in data:
-                    values = [str(row.get(header, '')) for header in headers]
-                    sheet.append_row(values)
-                    row_count += 1
-                print(f"{row_count} satır eklendi.")
             
-            return {"added": len(data)}
+            # Yeni veya değiştirilmiş kayıtları güncelle
+            updated_count = 0
+            new_count = 0
+            
+            for row in data:
+                notion_id = row.get('notion_id', '')
+                
+                # Takvim için gerekli alanları filtreleme
+                filtered_row = {
+                    'Etkinlik Adı': row.get('Etkinlik Adı', ''),
+                    'Etkinlik Türü': row.get('Etkinlik Türü', ''),
+                    'Müşteri': row.get('Müşteri', ''),
+                    'Tarih': row.get('Tarih', ''),
+                    'Kurulum Tarihi': row.get('Kurulum Tarihi', ''),
+                    'Yer': row.get('Yer', ''),
+                    'Kişi Sayısı': row.get('Kişi Sayısı', ''),
+                    'NX Kodu': row.get('NX Kodu', ''),
+                    'Durum': row.get('Durum', ''),
+                    'notion_id': notion_id,
+                    'last_edited_time': row.get('last_edited_time', '')
+                }
+                
+                if notion_id in existing_map:
+                    # Mevcut kayıt - son düzenleme zamanlarını karşılaştır
+                    idx, existing_row = existing_map[notion_id]
+                    
+                    # Notion'daki değişiklik Sheets'teki son güncellemeden sonraysa güncelle
+                    if row.get('last_edited_time', '') > existing_row.get('last_edited_time', ''):
+                        # Satırı güncelle
+                        cell_list = []
+                        for col_idx, header in enumerate(headers, start=1):
+                            cell_list.append(gspread.Cell(idx, col_idx, str(filtered_row.get(header, ''))))
+                        
+                        sheet.update_cells(cell_list)
+                        updated_count += 1
+                else:
+                    # Yeni kayıt - sona ekle
+                    values = [str(filtered_row.get(header, '')) for header in headers]
+                    sheet.append_row(values)
+                    new_count += 1
+            
+            # Sıralama - Tarih'e göre sırala
+            if existing_data or new_count > 0:
+                # Başlık satırını hariç tut ve verileri sırala
+                all_data = sheet.get_all_records()
+                
+                # Tarih sütununa göre sırala (varsa)
+                if 'Tarih' in headers:
+                    sorted_data = sorted(all_data, key=lambda x: x.get('Tarih', ''), reverse=False)
+                    
+                    # Sıralanmış verileri geri yaz
+                    sheet.update('A2', [
+                        [str(row.get(header, '')) for header in headers] 
+                        for row in sorted_data
+                    ])
+            
+            return {"updated": updated_count, "new": new_count, "total": len(data)}
+            
         except Exception as e:
-            print(f"Sheets dokümanı açılırken hata: {str(e)}")
-            # Sheets dokümanı bulunamadı mı kontrol et
-            available_sheets = [sheet.title for sheet in client.openall()]
-            print(f"Mevcut dokümanlar: {available_sheets}")
-            raise Exception(f"Sheets dokümanı hatası: {str(e)}. Mevcut dokümanlar: {available_sheets}")
+            print(f"Sheets işlemi sırasında hata: {str(e)}")
+            raise Exception(f"Sheets işlemi hatası: {str(e)}")
     except Exception as e:
         print(f"Google Sheets güncelleme hatası: {str(e)}")
         raise Exception(f"Google Sheets güncelleme hatası: {str(e)}")
