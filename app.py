@@ -121,14 +121,14 @@ def update_google_sheet(data):
                 # Takvim için gerekli alanları filtreleme
                 filtered_row = {
                     'Etkinlik Adı': row.get('Etkinlik Adı', ''),
-                    'Etkinlik Türü': row.get('Etkinlik Türü', ''),
                     'Müşteri': row.get('Müşteri', ''),
                     'Tarih': row.get('Tarih', ''),
-                    'Kurulum Tarihi': row.get('Kurulum Tarihi', ''),
                     'Yer': row.get('Yer', ''),
+                    'Durum': row.get('Durum', ''),
+                    'Etkinlik Türü': row.get('Etkinlik Türü', ''),
                     'Kişi Sayısı': row.get('Kişi Sayısı', ''),
                     'NX Kodu': row.get('NX Kodu', ''),
-                    'Durum': row.get('Durum', ''),
+                    
                     'notion_id': notion_id,
                     'last_edited_time': row.get('last_edited_time', '')
                 }
