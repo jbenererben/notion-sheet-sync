@@ -313,43 +313,78 @@ def update_notion_from_sheets():
         updated_count = 0
         new_count = 0
         
+        # Google Sheets istemcisini hazırla (yeni notion_id'leri geri aktarmak için)
+        client = get_sheets_client()
+        sheet = client.open(GOOGLE_SHEET_NAME).sheet1
+        
+        # Başlıkları al
+        headers = sheet.row_values(1)
+        notion_id_col = headers.index('notion_id') + 1 if 'notion_id' in headers else None
+        
         # Her Google Sheets satırı için
-        for sheet_row in sheets_data:
+        for idx, sheet_row in enumerate(sheets_data):
+            row_num = idx + 2  # Sheets'te satır numarası (başlık satırı + 1)
             notion_id = sheet_row.get('notion_id', '')
-            
-            # Bu satırın last_edited_time'ı var mı kontrol et
-            sheet_last_edited = sheet_row.get('last_edited_time', '')
             
             if notion_id and notion_id in notion_map:
                 # Mevcut Notion sayfası - değişiklik var mı kontrol et
                 notion_item = notion_map[notion_id]
-                notion_last_edited = notion_item.get('last_edited_time', '')
                 
-                # Google Sheets'teki değişiklik Notion'daki son güncellemeden sonraysa güncelle
-                if sheet_last_edited > notion_last_edited:
+                # Değişiklik kontrolü - her iki kaydı karşılaştır
+                has_changes = False
+                
+                # Önemli alanları kontrol et
+                for field in ['Etkinlik Adı', 'Müşteri', 'Tarih', 'Yer', 'Durum', 'Etkinlik Türü']:
+                    if field in sheet_row and field in notion_item:
+                        if str(sheet_row.get(field, '')) != str(notion_item.get(field, '')):
+                            has_changes = True
+                            print(f"Değişiklik tespit edildi - {field}: '{notion_item.get(field, '')}' -> '{sheet_row.get(field, '')}'")
+                            break
+                
+                # Son düzenleme zamanı kontrolü
+                sheet_last_edited = sheet_row.get('last_edited_time', '')
+                notion_last_edited = notion_item.get('last_edited_time', '')
+                time_based_update = not sheet_last_edited or not notion_last_edited or sheet_last_edited > notion_last_edited
+                
+                # Değişiklik varsa güncelle
+                if has_changes or time_based_update:
                     # Notion API için properties nesnesi oluştur
                     properties = build_notion_properties(sheet_row)
                     
                     # Notion sayfasını güncelle
                     update_notion_page(notion_id, properties)
                     updated_count += 1
+                    print(f"Kayıt güncellendi: {notion_id}")
             elif not notion_id:
                 # Notion ID yoksa, bu yeni bir kayıt olabilir
                 # Kontrol: Bu satır Google Sheets'te oluşturulmuş yeni bir kayıt mı?
-                if all(key in sheet_row for key in ['Etkinlik Adı', 'Müşteri']):
-                    # Etkinlik Adı ve Müşteri alanları varsa, bu muhtemelen manuel olarak eklenmiş geçerli bir kayıt
+                if 'Etkinlik Adı' in sheet_row and sheet_row['Etkinlik Adı']:
+                    # Etkinlik Adı alanı varsa, bu muhtemelen manuel olarak eklenmiş geçerli bir kayıt
                     # Notion API için properties nesnesi oluştur
                     properties = build_notion_properties(sheet_row)
                     
                     # Notion'da yeni sayfa oluştur
                     response = create_notion_page(properties)
+                    new_notion_id = response.get('id', '')
                     new_count += 1
+                    print(f"Yeni kayıt oluşturuldu: {new_notion_id}")
+                    
+                    # Yeni notion_id'yi Google Sheets'e geri aktar
+                    if notion_id_col and new_notion_id:
+                        sheet.update_cell(row_num, notion_id_col, new_notion_id)
+                        print(f"Yeni notion_id Google Sheets'e aktarıldı: {new_notion_id}")
+                        
+                        # last_edited_time sütunu varsa güncelle
+                        last_edited_col = headers.index('last_edited_time') + 1 if 'last_edited_time' in headers else None
+                        if last_edited_col:
+                            current_time = datetime.now().isoformat()
+                            sheet.update_cell(row_num, last_edited_col, current_time)
         
         return {"updated": updated_count, "new": new_count, "total": len(sheets_data)}
     except Exception as e:
         print(f"Notion güncelleme hatası: {str(e)}")
         raise Exception(f"Notion güncelleme hatası: {str(e)}")
-
+        
 # Google Sheets verilerinden Notion properties nesnesi oluşturmak için yardımcı fonksiyon
 def build_notion_properties(sheet_row):
     """Google Sheets satırından Notion properties nesnesi oluşturur"""
