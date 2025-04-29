@@ -7,6 +7,178 @@ import gspread
 from google.oauth2.service_account import Credentials
 from google.oauth2 import service_account
 
+def get_last_sync_time():
+    """Son senkronizasyon zamanını çevre değişkeninden okur"""
+    return os.environ.get("LAST_SYNC_TIME", "")
+
+def save_last_sync_time():
+    """Şu anki zamanı son senkronizasyon zamanı olarak kaydeder"""
+    current_time = datetime.now().isoformat()
+    print(f"ÖNEMLİ: LAST_SYNC_TIME={current_time} değerini Render.com ortam değişkenlerine ekleyin")
+    return current_time
+
+def resolve_conflicts(notion_item, sheet_row):
+    """İki sistemde aynı anda yapılan değişiklikleri çözümler"""
+    notion_edited = notion_item.get('last_edited_time', '')
+    sheet_edited = sheet_row.get('last_edited_time', '')
+    
+    # Eğer son düzenleme zamanları farklıysa, daha yeni olanı tercih et
+    if notion_edited and sheet_edited:
+        if notion_edited > sheet_edited:
+            return "notion"  # Notion'daki değişiklik daha yeni
+        else:
+            return "sheet"   # Sheets'teki değişiklik daha yeni
+    elif notion_edited:
+        return "notion"
+    elif sheet_edited:
+        return "sheet"
+    
+    return "notion"  # Varsayılan olarak Notion'ı tercih et
+
+def get_notion_data(filter_recent=False):
+    """Notion veritabanından veri çeker, opsiyonel olarak son değişiklikleri filtreler"""
+    url = f"https://api.notion.com/v1/databases/{NOTION_DATABASE_ID}/query"
+    
+    payload = {}
+    if filter_recent:
+        # Son 24 saatte değişmiş kayıtları al
+        last_sync = get_last_sync_time()
+        if last_sync:
+            payload["filter"] = {
+                "property": "last_edited_time",
+                "date": {
+                    "on_or_after": last_sync
+                }
+            }
+    
+    response = requests.post(url, headers=NOTION_HEADERS, json=payload)
+    
+    if response.status_code != 200:
+        raise Exception(f"Notion API hatası: {response.status_code} - {response.text}")
+    
+    data = response.json()
+    results = []
+    
+    for item in data.get('results', []):
+        row_data = {}
+        properties = item.get('properties', {})
+        
+        # Farklı veri tiplerini işle
+        for prop_name, prop_data in properties.items():
+            prop_type = prop_data.get('type', '')
+            
+            if prop_type == 'title':
+                title_array = prop_data.get('title', [])
+                row_data[prop_name] = title_array[0].get('plain_text', '') if title_array else ''
+            elif prop_type == 'rich_text':
+                text_array = prop_data.get('rich_text', [])
+                row_data[prop_name] = text_array[0].get('plain_text', '') if text_array else ''
+            elif prop_type == 'number':
+                row_data[prop_name] = prop_data.get('number', 0)
+            elif prop_type == 'select':
+                select_data = prop_data.get('select', {})
+                row_data[prop_name] = select_data.get('name', '') if select_data else ''
+            elif prop_type == 'multi_select':
+                multi_select = prop_data.get('multi_select', [])
+                names = [item.get('name', '') for item in multi_select if item]
+                row_data[prop_name] = ', '.join(names)
+            elif prop_type == 'date':
+                date_data = prop_data.get('date', {})
+                row_data[prop_name] = date_data.get('start', '') if date_data else ''
+            elif prop_type == 'checkbox':
+                row_data[prop_name] = prop_data.get('checkbox', False)
+            else:
+                row_data[prop_name] = f"[{prop_type}]"
+        
+        # Kimlik ve düzenleme zamanı ekle
+        row_data['notion_id'] = item.get('id', '')
+        row_data['last_edited_time'] = item.get('last_edited_time', '')
+        
+        results.append(row_data)
+    
+    return results
+
+def delete_from_sheets(notion_id):
+    """Sheets'ten bir kaydı siler"""
+    try:
+        client = get_sheets_client()
+        sheet = client.open(GOOGLE_SHEET_NAME).sheet1
+        
+        # Tüm kayıtları al
+        records = sheet.get_all_records()
+        
+        # Silinecek kaydın satır numarasını bul
+        row_num = None
+        for idx, record in enumerate(records):
+            if record.get('notion_id') == notion_id:
+                row_num = idx + 2  # +2: başlık satırı ve 0-indeksli olduğu için
+                break
+        
+        # Eğer kayıt bulunduysa sil
+        if row_num:
+            sheet.delete_row(row_num)
+            print(f"Sheets'ten silindi: {notion_id} (Satır: {row_num})")
+            return True
+        
+        return False
+    except Exception as e:
+        print(f"Sheets'ten silme hatası: {str(e)}")
+        return False
+
+def delete_from_notion(notion_id):
+    """Notion'dan bir sayfayı siler (arşivler)"""
+    try:
+        url = f"https://api.notion.com/v1/pages/{notion_id}"
+        
+        # Notion, silme yerine arşivleme kullanır
+        payload = {"archived": True}
+        
+        response = requests.patch(url, headers=NOTION_HEADERS, json=payload)
+        
+        if response.status_code != 200:
+            print(f"Notion silme hatası: {response.status_code} - {response.text}")
+            return False
+        
+        print(f"Notion'dan silindi (arşivlendi): {notion_id}")
+        return True
+    except Exception as e:
+        print(f"Notion'dan silme hatası: {str(e)}")
+        return False
+
+def handle_deleted_records():
+    """Bir sistemde silinen kayıtları diğer sistemde de siler"""
+    try:
+        # Notion'daki tüm kayıtları al
+        notion_data = get_notion_data()
+        notion_ids = {item.get('notion_id', '') for item in notion_data if item.get('notion_id', '')}
+        
+        # Sheets'teki tüm kayıtları al
+        sheets_data = get_sheets_data()
+        sheets_notion_ids = {row.get('notion_id', '') for row in sheets_data if row.get('notion_id', '')}
+        
+        # Notion'da olmayan ama Sheets'te olan kayıtları bul (Notion'dan silinmiş)
+        deleted_from_notion = sheets_notion_ids - notion_ids
+        notion_deleted_count = 0
+        for notion_id in deleted_from_notion:
+            if notion_id:  # Boş ID'leri atla
+                # Bu kaydı Sheets'ten sil
+                if delete_from_sheets(notion_id):
+                    notion_deleted_count += 1
+        
+        # Sheets'te olmayan ama Notion'da olan kayıtları bul (Sheets'ten silinmiş)
+        deleted_from_sheets = notion_ids - sheets_notion_ids
+        sheets_deleted_count = 0
+        for notion_id in deleted_from_sheets:
+            if notion_id:  # Boş ID'leri atla
+                # Bu kaydı Notion'dan sil
+                if delete_from_notion(notion_id):
+                    sheets_deleted_count += 1
+        
+        return {"notion": notion_deleted_count, "sheets": sheets_deleted_count}
+    except Exception as e:
+        print(f"Silinen kayıtları işleme hatası: {str(e)}")
+        return {"notion": 0, "sheets": 0}
+
 app = Flask(__name__)
 
 # Çevre değişkenlerini al
@@ -503,10 +675,10 @@ def sync_optimized():
         print(f"Sheets'ten {len(sheets_data)} kayıt alındı")
         
         # 3. Notion'daki değişiklikleri Sheets'e aktar
-        sheets_result = update_google_sheet(notion_data, incremental=True)
+        sheets_result = update_google_sheet(notion_data)
         
         # 4. Sheets'teki değişiklikleri Notion'a aktar
-        notion_result = update_notion_from_sheets(sheets_data, notion_data, incremental=True)
+        notion_result = update_notion_from_sheets()
         
         # 5. Silinen kayıtları işle
         deleted_result = handle_deleted_records()
