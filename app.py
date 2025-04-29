@@ -361,16 +361,16 @@ def build_notion_properties(sheet_row):
             "title": [{"text": {"content": sheet_row['Etkinlik Adı']}}]
         }
     
-    # Müşteri (select)
+    # Müşteri (rich_text)
     if 'Müşteri' in sheet_row and sheet_row['Müşteri']:
         properties['Müşteri'] = {
-            "select": {"name": sheet_row['Müşteri']}
+            "rich_text": [{"text": {"content": sheet_row['Müşteri']}}]
         }
     
-    # Etkinlik Türü (select)
+    # Etkinlik Türü (rich_text)
     if 'Etkinlik Türü' in sheet_row and sheet_row['Etkinlik Türü']:
         properties['Etkinlik Türü'] = {
-            "select": {"name": sheet_row['Etkinlik Türü']}
+            "rich_text": [{"text": {"content": sheet_row['Etkinlik Türü']}}]
         }
     
     # Tarih (date)
@@ -392,9 +392,9 @@ def build_notion_properties(sheet_row):
         }
     
     # Kişi Sayısı (number)
-    if 'Kişi Sayısı' in sheet_row and sheet_row['Kişi Sayısı'] and str(sheet_row['Kişi Sayısı']).isdigit():
+    if 'Kişi Sayısı' in sheet_row and sheet_row['Kişi Sayısı'] and str(sheet_row['Kişi Sayısı']).replace('.', '').isdigit():
         properties['Kişi Sayısı'] = {
-            "number": int(sheet_row['Kişi Sayısı'])
+            "number": float(str(sheet_row['Kişi Sayısı']).replace(',', '.'))
         }
     
     # NX Kodu (rich_text)
@@ -403,14 +403,14 @@ def build_notion_properties(sheet_row):
             "rich_text": [{"text": {"content": sheet_row['NX Kodu']}}]
         }
     
-    # Durum (select)
+    # Durum (rich_text)
     if 'Durum' in sheet_row and sheet_row['Durum']:
         properties['Durum'] = {
-            "select": {"name": sheet_row['Durum']}
+            "rich_text": [{"text": {"content": sheet_row['Durum']}}]
         }
     
     return properties
-
+    
 # Sheets'ten Notion'a manuel senkronizasyon endpoint'i
 @app.route('/sync-to-notion', methods=['GET'])
 def sync_to_notion():
