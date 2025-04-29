@@ -247,6 +247,210 @@ def test_notion():
     except Exception as e:
         return jsonify({"status": "error", "message": str(e)}), 500
 
+# Google Sheets'ten veri çekmek için yeni bir fonksiyon
+def get_sheets_data():
+    """Google Sheets'ten veri çeker"""
+    try:
+        client = get_sheets_client()
+        sheet = client.open(GOOGLE_SHEET_NAME).sheet1
+        
+        # Tüm verileri al
+        rows = sheet.get_all_records()
+        return rows
+    except Exception as e:
+        print(f"Google Sheets'ten veri çekerken hata: {str(e)}")
+        raise Exception(f"Google Sheets veri çekme hatası: {str(e)}")
+
+# Notion'daki bir sayfayı güncellemek için yardımcı fonksiyon
+def update_notion_page(page_id, properties):
+    """Notion'da bir sayfayı günceller"""
+    url = f"https://api.notion.com/v1/pages/{page_id}"
+    
+    payload = {
+        "properties": properties
+    }
+    
+    response = requests.patch(url, headers=NOTION_HEADERS, json=payload)
+    
+    if response.status_code != 200:
+        raise Exception(f"Notion sayfa güncelleme hatası: {response.status_code} - {response.text}")
+    
+    return response.json()
+
+# Notion'da yeni bir sayfa oluşturmak için yardımcı fonksiyon
+def create_notion_page(properties):
+    """Notion'da yeni bir sayfa oluşturur"""
+    url = "https://api.notion.com/v1/pages"
+    
+    payload = {
+        "parent": {"database_id": NOTION_DATABASE_ID},
+        "properties": properties
+    }
+    
+    response = requests.post(url, headers=NOTION_HEADERS, json=payload)
+    
+    if response.status_code != 200:
+        raise Exception(f"Notion sayfa oluşturma hatası: {response.status_code} - {response.text}")
+    
+    return response.json()
+
+# Google Sheets'ten Notion'a veri aktaran ana fonksiyon
+def update_notion_from_sheets():
+    """Google Sheets'ten Notion'a veri aktarır"""
+    try:
+        # Google Sheets'ten verileri al
+        sheets_data = get_sheets_data()
+        print(f"Google Sheets'ten {len(sheets_data)} kayıt alındı.")
+        
+        # Notion'daki mevcut verileri al
+        notion_data = get_notion_data()
+        print(f"Notion'dan {len(notion_data)} kayıt alındı.")
+        
+        # Notion verilerini ID'ye göre mapla
+        notion_map = {item.get('notion_id', ''): item for item in notion_data if item.get('notion_id', '')}
+        
+        # Güncelleme ve ekleme sayaçları
+        updated_count = 0
+        new_count = 0
+        
+        # Her Google Sheets satırı için
+        for sheet_row in sheets_data:
+            notion_id = sheet_row.get('notion_id', '')
+            
+            # Bu satırın last_edited_time'ı var mı kontrol et
+            sheet_last_edited = sheet_row.get('last_edited_time', '')
+            
+            if notion_id and notion_id in notion_map:
+                # Mevcut Notion sayfası - değişiklik var mı kontrol et
+                notion_item = notion_map[notion_id]
+                notion_last_edited = notion_item.get('last_edited_time', '')
+                
+                # Google Sheets'teki değişiklik Notion'daki son güncellemeden sonraysa güncelle
+                if sheet_last_edited > notion_last_edited:
+                    # Notion API için properties nesnesi oluştur
+                    properties = build_notion_properties(sheet_row)
+                    
+                    # Notion sayfasını güncelle
+                    update_notion_page(notion_id, properties)
+                    updated_count += 1
+            elif not notion_id:
+                # Notion ID yoksa, bu yeni bir kayıt olabilir
+                # Kontrol: Bu satır Google Sheets'te oluşturulmuş yeni bir kayıt mı?
+                if all(key in sheet_row for key in ['Etkinlik Adı', 'Müşteri']):
+                    # Etkinlik Adı ve Müşteri alanları varsa, bu muhtemelen manuel olarak eklenmiş geçerli bir kayıt
+                    # Notion API için properties nesnesi oluştur
+                    properties = build_notion_properties(sheet_row)
+                    
+                    # Notion'da yeni sayfa oluştur
+                    response = create_notion_page(properties)
+                    new_count += 1
+        
+        return {"updated": updated_count, "new": new_count, "total": len(sheets_data)}
+    except Exception as e:
+        print(f"Notion güncelleme hatası: {str(e)}")
+        raise Exception(f"Notion güncelleme hatası: {str(e)}")
+
+# Google Sheets verilerinden Notion properties nesnesi oluşturmak için yardımcı fonksiyon
+def build_notion_properties(sheet_row):
+    """Google Sheets satırından Notion properties nesnesi oluşturur"""
+    properties = {}
+    
+    # Etkinlik Adı (title)
+    if 'Etkinlik Adı' in sheet_row and sheet_row['Etkinlik Adı']:
+        properties['Etkinlik Adı'] = {
+            "title": [{"text": {"content": sheet_row['Etkinlik Adı']}}]
+        }
+    
+    # Müşteri (select)
+    if 'Müşteri' in sheet_row and sheet_row['Müşteri']:
+        properties['Müşteri'] = {
+            "select": {"name": sheet_row['Müşteri']}
+        }
+    
+    # Etkinlik Türü (select)
+    if 'Etkinlik Türü' in sheet_row and sheet_row['Etkinlik Türü']:
+        properties['Etkinlik Türü'] = {
+            "select": {"name": sheet_row['Etkinlik Türü']}
+        }
+    
+    # Tarih (date)
+    if 'Tarih' in sheet_row and sheet_row['Tarih']:
+        properties['Tarih'] = {
+            "date": {"start": sheet_row['Tarih']}
+        }
+    
+    # Kurulum Tarihi (date)
+    if 'Kurulum Tarihi' in sheet_row and sheet_row['Kurulum Tarihi']:
+        properties['Kurulum Tarihi'] = {
+            "date": {"start": sheet_row['Kurulum Tarihi']}
+        }
+    
+    # Yer (rich_text)
+    if 'Yer' in sheet_row and sheet_row['Yer']:
+        properties['Yer'] = {
+            "rich_text": [{"text": {"content": sheet_row['Yer']}}]
+        }
+    
+    # Kişi Sayısı (number)
+    if 'Kişi Sayısı' in sheet_row and sheet_row['Kişi Sayısı'] and str(sheet_row['Kişi Sayısı']).isdigit():
+        properties['Kişi Sayısı'] = {
+            "number": int(sheet_row['Kişi Sayısı'])
+        }
+    
+    # NX Kodu (rich_text)
+    if 'NX Kodu' in sheet_row and sheet_row['NX Kodu']:
+        properties['NX Kodu'] = {
+            "rich_text": [{"text": {"content": sheet_row['NX Kodu']}}]
+        }
+    
+    # Durum (select)
+    if 'Durum' in sheet_row and sheet_row['Durum']:
+        properties['Durum'] = {
+            "select": {"name": sheet_row['Durum']}
+        }
+    
+    return properties
+
+# Sheets'ten Notion'a manuel senkronizasyon endpoint'i
+@app.route('/sync-to-notion', methods=['GET'])
+def sync_to_notion():
+    """Google Sheets'ten Notion'a manuel senkronizasyon"""
+    try:
+        print("Sheets'ten Notion'a senkronizasyon başladı")
+        result = update_notion_from_sheets()
+        print("Senkronizasyon tamamlandı:", result)
+        
+        return jsonify({
+            "status": "success",
+            "message": f"{result['total']} kayıt işlendi. {result['new']} yeni, {result['updated']} güncellendi."
+        })
+    except Exception as e:
+        error_detail = str(e)
+        print(f"Senkronizasyon hatası: {error_detail}")
+        return jsonify({"status": "error", "message": error_detail}), 500
+
+# İki yönlü senkronizasyon endpoint'i
+@app.route('/sync-both', methods=['GET'])
+def sync_both():
+    """Notion ve Google Sheets arasında iki yönlü senkronizasyon"""
+    try:
+        # Önce Notion'dan Google Sheets'e
+        notion_data = get_notion_data()
+        sheets_result = update_google_sheet(notion_data)
+        
+        # Sonra Google Sheets'ten Notion'a
+        notion_result = update_notion_from_sheets()
+        
+        return jsonify({
+            "status": "success",
+            "sheets_sync": f"{sheets_result['total']} kayıt işlendi. {sheets_result['new']} yeni, {sheets_result['updated']} güncellendi.",
+            "notion_sync": f"{notion_result['total']} kayıt işlendi. {notion_result['new']} yeni, {notion_result['updated']} güncellendi."
+        })
+    except Exception as e:
+        error_detail = str(e)
+        print(f"İki yönlü senkronizasyon hatası: {error_detail}")
+        return jsonify({"status": "error", "message": error_detail}), 500
+
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))
     app.run(host='0.0.0.0', port=port)
