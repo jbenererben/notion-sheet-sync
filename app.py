@@ -403,10 +403,10 @@ def build_notion_properties(sheet_row):
             "rich_text": [{"text": {"content": sheet_row['NX Kodu']}}]
         }
     
-    # Durum (rich_text)
+    # Durum (select)
     if 'Durum' in sheet_row and sheet_row['Durum']:
         properties['Durum'] = {
-            "rich_text": [{"text": {"content": sheet_row['Durum']}}]
+            "select": {"name": sheet_row['Durum']}
         }
     
     return properties
