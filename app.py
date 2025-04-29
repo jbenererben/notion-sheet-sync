@@ -486,6 +486,47 @@ def sync_both():
         print(f"İki yönlü senkronizasyon hatası: {error_detail}")
         return jsonify({"status": "error", "message": error_detail}), 500
 
+@app.route('/sync-optimized', methods=['GET'])
+def sync_optimized():
+    """Optimize edilmiş iki yönlü senkronizasyon"""
+    try:
+        # Son senkronizasyon zamanını al
+        last_sync = get_last_sync_time()
+        print(f"Son senkronizasyon: {last_sync}")
+        
+        # 1. Notion'dan değişen verileri al
+        notion_data = get_notion_data(filter_recent=True) if last_sync else get_notion_data()
+        print(f"Notion'dan {len(notion_data)} kayıt alındı")
+        
+        # 2. Sheets'ten değişen verileri al
+        sheets_data = get_sheets_data()
+        print(f"Sheets'ten {len(sheets_data)} kayıt alındı")
+        
+        # 3. Notion'daki değişiklikleri Sheets'e aktar
+        sheets_result = update_google_sheet(notion_data, incremental=True)
+        
+        # 4. Sheets'teki değişiklikleri Notion'a aktar
+        notion_result = update_notion_from_sheets(sheets_data, notion_data, incremental=True)
+        
+        # 5. Silinen kayıtları işle
+        deleted_result = handle_deleted_records()
+        
+        # 6. Son senkronizasyon zamanını güncelle
+        new_sync_time = save_last_sync_time()
+        
+        return jsonify({
+            "status": "success",
+            "last_sync": last_sync,
+            "new_sync": new_sync_time,
+            "sheets_sync": f"{sheets_result['total']} kayıt işlendi. {sheets_result['new']} yeni, {sheets_result['updated']} güncellendi.",
+            "notion_sync": f"{notion_result['total']} kayıt işlendi. {notion_result['new']} yeni, {notion_result['updated']} güncellendi.",
+            "deleted": f"{deleted_result['notion']} kayıt Notion'dan, {deleted_result['sheets']} kayıt Sheets'ten silindi."
+        })
+    except Exception as e:
+        error_detail = str(e)
+        print(f"Senkronizasyon hatası: {error_detail}")
+        return jsonify({"status": "error", "message": error_detail}), 500
+
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))
     app.run(host='0.0.0.0', port=port)
