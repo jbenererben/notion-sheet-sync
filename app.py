@@ -107,8 +107,8 @@ def update_google_sheet(data):
                 headers = sheet.row_values(1)
             else:
                 # Takvim için gerekli alanları seç
-                headers = ['Etkinlik Adı', 'Etkinlik Türü', 'Müşteri', 'Tarih', 'Kurulum Tarihi', 
-                           'Yer', 'Kişi Sayısı', 'NX Kodu', 'Durum', 'notion_id', 'last_edited_time']
+                headers = ['Etkinlik Adı', 'Müşteri', 'Tarih', 'Yer', 'Durum',
+                             'Etkinlik Türü', 'Kişi Sayısı', 'notion_id', 'last_edited_time']
                 sheet.append_row(headers)
             
             # Yeni veya değiştirilmiş kayıtları güncelle
@@ -128,7 +128,6 @@ def update_google_sheet(data):
                     'Etkinlik Türü': row.get('Etkinlik Türü', ''),
                     'Kişi Sayısı': row.get('Kişi Sayısı', ''),
                     'NX Kodu': row.get('NX Kodu', ''),
-                    
                     'notion_id': notion_id,
                     'last_edited_time': row.get('last_edited_time', '')
                 }
